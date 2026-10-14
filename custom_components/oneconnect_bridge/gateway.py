@@ -480,24 +480,60 @@ class GatewayRuntime:
                 self._set_status("error", f"invalid integration manifest: {error}")
                 return
             self._integration_version = integration_version
+            active_bound_state = bound_state
+            active_binding = binding
+
+            def promote_bound_state() -> bool:
+                nonlocal active_bound_state, active_binding
+                if active_bound_state is not None:
+                    return True
+                material = self.store.read_json("cloud/material.json")
+                if not material:
+                    return False
+                dev_id = material.get("devId")
+                secret = material.get("secret")
+                if not (
+                    isinstance(dev_id, str)
+                    and dev_id
+                    and isinstance(secret, str)
+                    and secret
+                ):
+                    return False
+                active_bound_state = material
+                active_binding = None
+                _LOGGER.debug(
+                    "Gateway %s promoted to bound cloud session",
+                    self.serial,
+                )
+                return True
+
+            def handle_cloud_ready(
+                ready_client: CloudM2MClient, access_token: str
+            ) -> None:
+                promote_bound_state()
+                self._on_cloud_ready(
+                    ready_client,
+                    access_token,
+                    integration_version,
+                )
+
             reconnect_delay = RECONNECT_INITIAL_DELAY_SECONDS
             while not self._cloud_stop.is_set():
                 ca_path = _ensure_huawei_trust_store(self.store)
-                session_state = bound_state
-                if bound_state is not None:
-                    session_state = self.store.read_json("cloud/material.json") or bound_state
+                session_state = active_bound_state
+                if active_bound_state is not None:
+                    session_state = (
+                        self.store.read_json("cloud/material.json")
+                        or active_bound_state
+                    )
                 client = CloudM2MClient(
-                    binding=binding,
+                    binding=active_binding,
                     serial_number=self.serial,
                     mac=self.config.mac,
                     interface_ip=self.config.interface_ip,
                     material_path=self.store.path("cloud/material.json"),
                     on_online=lambda: self._set_status("online"),
-                    on_cloud_ready=lambda ready_client, access_token: self._on_cloud_ready(
-                        ready_client,
-                        access_token,
-                        integration_version,
-                    ),
+                    on_cloud_ready=handle_cloud_ready,
                     on_worker_tick=self._process_reload_requests,
                     device_model=self.config.model,
                     device_type=self.config.device_type,
@@ -532,7 +568,7 @@ class GatewayRuntime:
                     self._set_status("online")
                     break
 
-                if bound_state is None:
+                if not promote_bound_state():
                     _LOGGER.error(
                         "Gateway %s cloud session failed at %s: %s",
                         self.serial,
