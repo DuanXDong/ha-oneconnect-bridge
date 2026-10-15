@@ -421,6 +421,7 @@ class CloudSetupCodec:
         encoded = payload.encode("ascii") if isinstance(payload, str) else payload
         if not isinstance(encoded, bytes):
             raise CloudSetupProtocolError("CloudSetup payload must be bytes or text")
+        encoded = encoded.translate(None, b" \t\r\n")
         try:
             frame = base64.b64decode(encoded, validate=True)
         except (binascii.Error, ValueError, UnicodeEncodeError) as error:
