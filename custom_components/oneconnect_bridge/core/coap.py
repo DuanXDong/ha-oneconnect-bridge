@@ -183,14 +183,20 @@ class DeviceDescriptor:
     ) -> CoapMessage:
         if not is_cloud_setup_request(request):
             raise CoapProtocolError("request is not a cloudSetup discovery request")
-        if request.message_type != COAP_NON_CONFIRMABLE:
-            raise NotImplementedError("only the observed non-confirmable discovery request is modelled")
         payload = self._observed_cloud_setup_json().encode("utf-8")
-        # Callers supply the response message ID because its allocation policy is not recovered.
+        if request.message_type == COAP_CONFIRMABLE:
+            message_type = COAP_ACKNOWLEDGEMENT
+            message_id = request.message_id
+        elif request.message_type == COAP_NON_CONFIRMABLE:
+            message_type = COAP_NON_CONFIRMABLE
+            # Callers supply the response message ID because its allocation policy is not recovered.
+            message_id = response_message_id
+        else:
+            raise CoapProtocolError("unsupported cloudSetup discovery message type")
         return CoapMessage(
-            message_type=COAP_NON_CONFIRMABLE,
+            message_type=message_type,
             code=COAP_CONTENT,
-            message_id=response_message_id,
+            message_id=message_id,
             token=request.token,
             payload=payload,
         )
