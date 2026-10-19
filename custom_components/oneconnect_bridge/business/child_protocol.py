@@ -47,21 +47,24 @@ class ChildIdentity:
         value: dict[str, object] = {
             "sn": self.serial_number,
             "udid": self.udid,
-            "subProdId": self.sub_product_id,
             "model": plan.product.model,
             "devType": plan.product.device_type,
             "manu": plan.product.manufacturer,
             "prodId": self.product_id,
             "mac": self.mac,
+            # Device versions are owned by the integration, not user YAML.
             "hiv": "1.0",
             "fwv": firmware_version,
             "hwv": hardware_version,
             "swv": software_version,
         }
+        if not plan.product.known_fields_only:
+            value["subProdId"] = self.sub_product_id
         if include_device_name:
             value["deviceName"] = plan.friendly_name or plan.product.device_name
         value["protType"] = plan.product.protocol_type
-        value["setupType"] = plan.product.setup_type
+        if not plan.product.known_fields_only:
+            value["setupType"] = plan.product.setup_type
         return value
 
 
@@ -322,7 +325,7 @@ def parse_batch_bind_response(
     failures = payload.get("failureList")
     successes = payload.get("successList")
     if not isinstance(failures, list) or failures:
-        raise ChildProtocolError("batchBind returned a failureList")
+        raise ChildProtocolError(f"batchBind returned failureList: {failures!r}")
     if not isinstance(successes, list) or len(successes) != 1:
         raise ChildProtocolError("batchBind did not return one success item")
     item = successes[0]

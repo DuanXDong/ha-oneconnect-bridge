@@ -6,19 +6,14 @@ from typing import Any
 import yaml
 
 from ..const import MAX_CHILD_DEVICES_PER_GATEWAY
-from .catalog import CATALOG_PATH, CatalogError, load_catalog
-from .models import BindingField, ChildPlan, GatewayPlan, ServiceRef
+from .models import BindingField, ChildPlan, GatewayPlan, ProductSpec, ServiceRef
 
 
 class MappingConfigError(ValueError):
     pass
 
 
-def load_enabled_mapping(
-    path: Path,
-    *,
-    catalog_path: Path = CATALOG_PATH,
-) -> GatewayPlan | None:
+def load_enabled_mapping(path: Path) -> GatewayPlan | None:
     """Load and validate a mapping only when its explicit enabled flag is true."""
 
     try:
@@ -29,11 +24,6 @@ def load_enabled_mapping(
         raise MappingConfigError("gateway mapping must have schema: 1")
     if value.get("enabled") is not True:
         return None
-
-    try:
-        catalog = load_catalog(catalog_path)
-    except CatalogError as error:
-        raise MappingConfigError(str(error)) from error
 
     gateway_serial = value.get("gateway_serial")
     if gateway_serial is not None and not isinstance(gateway_serial, str):
@@ -56,17 +46,17 @@ def load_enabled_mapping(
         raw_product = raw_child.get("product")
         if not isinstance(raw_product, dict):
             raise MappingConfigError(f"child {key} has no product mapping")
-        product_ref = raw_product.get("ref")
-        if not isinstance(product_ref, str) or product_ref not in catalog:
-            raise MappingConfigError(
-                f"child {key} references unknown product {product_ref!r}"
-            )
+        product = _parse_product(raw_product, key)
 
         raw_services = raw_product.get("services")
-        if not isinstance(raw_services, list) or not raw_services:
-            raise MappingConfigError(f"child {key} must select at least one service")
+        if not isinstance(raw_services, list):
+            raise MappingConfigError(f"child {key} product services must be a list")
         services = tuple(_parse_service(item, key) for item in raw_services)
         bindings = tuple(_parse_bindings(raw_child.get("bindings"), key))
+        if not services and bindings:
+            raise MappingConfigError(
+                f"child {key} must select a service when bindings are present"
+            )
         service_ids = {service.service_id for service in services}
         if any(binding.service_id not in service_ids for binding in bindings):
             raise MappingConfigError(f"child {key} binds an unselected service")
@@ -88,7 +78,7 @@ def load_enabled_mapping(
         children.append(
             ChildPlan(
                 key=key,
-                product=catalog[product_ref],
+                product=product,
                 friendly_name=friendly_name,
                 room=room,
                 services=services,
@@ -97,6 +87,68 @@ def load_enabled_mapping(
             )
         )
     return GatewayPlan(gateway_serial=gateway_serial, children=tuple(children))
+
+
+def _parse_product(value: dict[str, Any], child_key: str) -> ProductSpec:
+    """Parse a product identity supplied directly by the user's YAML."""
+
+    required_fields = (
+        "prod_id",
+        "sub_prod_id",
+        "device_type",
+        "manufacturer",
+        "model",
+        "device_name",
+        "protocol_type",
+        "setup_type",
+    )
+    missing = [field for field in required_fields if field not in value]
+    if missing:
+        raise MappingConfigError(
+            f"child {child_key} product is missing fields: {', '.join(missing)}"
+        )
+    text_fields = (
+        "prod_id",
+        "device_type",
+        "manufacturer",
+        "model",
+        "device_name",
+    )
+    if not all(
+        isinstance(value[field], str) and value[field]
+        for field in text_fields
+    ):
+        raise MappingConfigError(f"child {child_key} product has an invalid text field")
+    sub_prod_id = value["sub_prod_id"]
+    if not isinstance(sub_prod_id, str):
+        raise MappingConfigError(f"child {child_key} product has an invalid sub_prod_id")
+    known_fields_only = value.get("known_fields_only", False)
+    if not isinstance(known_fields_only, bool):
+        raise MappingConfigError(
+            f"child {child_key} product known_fields_only must be boolean"
+        )
+    if not sub_prod_id and not known_fields_only:
+        raise MappingConfigError(
+            f"child {child_key} empty sub_prod_id requires known_fields_only"
+        )
+    if any(
+        isinstance(value[field], bool) or not isinstance(value[field], int)
+        for field in ("protocol_type", "setup_type")
+    ):
+        raise MappingConfigError(
+            f"child {child_key} product has an invalid numeric field"
+        )
+    return ProductSpec(
+        prod_id=value["prod_id"],
+        sub_prod_id=value["sub_prod_id"],
+        device_type=value["device_type"],
+        manufacturer=value["manufacturer"],
+        model=value["model"],
+        device_name=value["device_name"],
+        protocol_type=value["protocol_type"],
+        setup_type=value["setup_type"],
+        known_fields_only=known_fields_only,
+    )
 
 
 def _parse_service(value: Any, child_key: str) -> ServiceRef:
