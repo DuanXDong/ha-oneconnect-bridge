@@ -14,6 +14,7 @@ class ProductSpec:
     device_name: str
     protocol_type: int
     setup_type: int
+    known_fields_only: bool = False
 
 
 @dataclass(frozen=True)

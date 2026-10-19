@@ -1,0 +1,7 @@
+interface:
+  display_name: "OneConnect 设备投影助手"
+  short_description: "从 HA 实体和华为物模型生成投影方案"
+  default_prompt: "使用 $oneconnect-device-projection 分析我的 HA 实体并生成华为 OneConnect 子设备投影方案。"
+
+policy:
+  allow_implicit_invocation: true

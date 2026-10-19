@@ -70,16 +70,38 @@ config/custom_components/oneconnect_bridge/
 .storage/oneconnect_bridge/gateways/<gateway_serial>/mapping.yaml
 ```
 
-首次添加网关时，集成会从 [default_mapping.yaml](custom_components/oneconnect_bridge/default_mapping.yaml) 复制样例，默认 `enabled: true`，会加载预置子设备模型。
+首次添加网关时，集成会从 [default_mapping.yaml](custom_components/oneconnect_bridge/default_mapping.yaml) 复制样例。样例只包含一个 `ZJ0V` 链路探针，用于确认父网关、云会话和子设备注册链路正常；它是普通用户子设备，可以直接删除。
 
 编辑对应网关的 `mapping.yaml`：
 
 1. 保持 `enabled: true`（如暂不注册子设备，可改为 `false`）；
-2. 使用 [catalog.yaml](custom_components/oneconnect_bridge/catalog.yaml) 中存在的产品 `ref`；
-3. 填写实际的 HA `entity_id`、服务和字段映射；
-4. 点击网关设备上的“重载子设备配置”按钮。
+2. 删除不需要的链路探针，并在 `children` 下按需添加自己的子设备；
+3. 在每个子设备的 `product` 中直接填写产品身份字段，不再依赖内置产品样例；
+4. 填写实际的 HA `entity_id`、服务和字段映射；
+5. 点击网关设备上的“重载子设备配置”按钮。
 
-重载成功后，集成会通过父网关会话注册或更新 YAML 中声明的子设备，并开始状态同步和上下行控制。样例中的产品和实体值仅供参考，需要按实际环境替换。
+产品配置的最小结构如下：
+
+```yaml
+product:
+  prod_id: ZJ0V
+  sub_prod_id: ""
+  device_type: "347"
+  manufacturer: "002"
+  model: "MAEXTRO-S800 Grand Design"
+  device_name: "尊界S800 Grand Design"
+  protocol_type: 1
+  setup_type: 0
+  known_fields_only: true
+  services:
+    - st: car.ignition
+      sid: ignition
+```
+
+产品身份和服务定义完全由用户侧 `mapping.yaml` 提供，集成不再预置产品目录。
+`known_fields_only: true` 用于省略 ZJ0V 不需要的 `subProdId/setupType`；设备的 `fwv/hwv/swv` 始终由集成 `manifest.json` 版本生成，不由用户 YAML 配置。
+
+重载成功后，集成会通过父网关会话注册或更新 YAML 中声明的子设备；删除的子设备也会从云端和本地材料中清理。探针保留时会占用一个子设备额度，删除后可使用完整的 64 个子设备额度。
 
 ### 5. 重新配对与删除
 
@@ -95,9 +117,23 @@ data:
 
 如果需要删除旧网关后重新配对，请在 HA 中删除整个 OneConnect Bridge 集成。集成会依次清理子设备、revoke 父网关并删除对应持久化目录，然后重新添加集成即可。
 
+### 6. AI 投影辅助技能
+
+仓库提供 [OneConnect 设备投影技能](skills/oneconnect-device-projection/)，用于帮助 AI 根据 HA 实体、华为 `mainHelp.json` 全量目录和单品 Profile 生成子设备投影方案。
+
+技能覆盖：
+
+- HA 实体信息采集与映射建议；
+- Huawei 产品和物模型查询；
+- `prodId`、`deviceTypeId`、`manufacturerId`、`protType` 等注册字段包装；
+- 服务、特征值、枚举、单位、范围和步进转换；
+- `batchBind`/`devInfoSync` 注册失败诊断。
+
+该技能是 AI 工具的辅助资源，不会由 Home Assistant 集成本身执行。使用时将该目录安装到所用 AI 工具的技能目录；技能默认只生成方案，只有用户明确授权时才更新 HA 侧 YAML，不修改生产代码。
+
 ## 相关项目
 
-- [OneConnect](https://gitcode.com/ohos-oneconnect/communication_iot_connect) 上游 C SDK
+- [OneConnect](https://gitcode.com/ohos-oneconnect/communication_iot_connect) 上游
 - OneConnect 上游文档（[docs](https://gitcode.com/ohos-oneconnect/docs)）
 - [ha_hwhomebridge](https://github.com/Wangxiaokang666-666/ha_hwhomebridge)
 - [huawei-smarthome](https://github.com/xiasi0/ha-huawei-smarthome)

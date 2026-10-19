@@ -272,7 +272,7 @@ class GatewayRuntime:
                         client,
                         access_token,
                         integration_version=self._integration_version,
-                        hardware_version=VIRTUAL_HARDWARE_VERSION,
+                        hardware_version=self._integration_version,
                     ):
                         raise RuntimeError("one or more child operations failed")
                 else:
@@ -630,7 +630,7 @@ class GatewayRuntime:
             client,
             access_token,
             integration_version=integration_version,
-            hardware_version=VIRTUAL_HARDWARE_VERSION,
+            hardware_version=self._integration_version,
         )
 
     def _create_pairing_ticket(self) -> None:
