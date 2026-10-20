@@ -6,7 +6,8 @@ from typing import Any
 import yaml
 
 from ..const import MAX_CHILD_DEVICES_PER_GATEWAY
-from .models import BindingField, ChildPlan, GatewayPlan, ProductSpec, ServiceRef
+from .adapters import get_service_adapter
+from .models import ChildPlan, GatewayPlan, ProductSpec, ServiceBinding, ServiceRef
 
 
 class MappingConfigError(ValueError):
@@ -14,7 +15,7 @@ class MappingConfigError(ValueError):
 
 
 def load_enabled_mapping(path: Path) -> GatewayPlan | None:
-    """Load and validate a mapping only when its explicit enabled flag is true."""
+    """Load service-selected child projections from a gateway mapping."""
 
     try:
         value = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -43,31 +44,26 @@ def load_enabled_mapping(path: Path) -> GatewayPlan | None:
             raise MappingConfigError("child keys must be non-empty text")
         if not isinstance(raw_child, dict):
             raise MappingConfigError(f"child {key} must be a mapping")
+        if "adapter" in raw_child or "entities" in raw_child:
+            raise MappingConfigError(
+                f"child {key} uses removed adapter configuration; "
+                "select services and bind HA entities instead"
+            )
+
         raw_product = raw_child.get("product")
         if not isinstance(raw_product, dict):
             raise MappingConfigError(f"child {key} has no product mapping")
         product = _parse_product(raw_product, key)
+        services = _parse_services(raw_product.get("services"), key)
+        bindings = _parse_bindings(raw_child.get("bindings"), key)
+        _validate_service_bindings(key, services, bindings)
 
-        raw_services = raw_product.get("services")
-        if not isinstance(raw_services, list):
-            raise MappingConfigError(f"child {key} product services must be a list")
-        services = tuple(_parse_service(item, key) for item in raw_services)
-        bindings = tuple(_parse_bindings(raw_child.get("bindings"), key))
-        if not services and bindings:
-            raise MappingConfigError(
-                f"child {key} must select a service when bindings are present"
-            )
-        service_ids = {service.service_id for service in services}
-        if any(binding.service_id not in service_ids for binding in bindings):
-            raise MappingConfigError(f"child {key} binds an unselected service")
         display = raw_child.get("display")
         if display is not None and not isinstance(display, dict):
             raise MappingConfigError(f"child {key} display must be a mapping")
         friendly_name = _optional_text(display, "friendly_name")
         room = _optional_text(display, "room")
-        lifecycle = raw_child.get("lifecycle")
-        if lifecycle is None:
-            lifecycle = {}
+        lifecycle = raw_child.get("lifecycle") or {}
         if not isinstance(lifecycle, dict):
             raise MappingConfigError(f"child {key} lifecycle must be a mapping")
         on_product_change = lifecycle.get("on_product_change", "block")
@@ -90,8 +86,6 @@ def load_enabled_mapping(path: Path) -> GatewayPlan | None:
 
 
 def _parse_product(value: dict[str, Any], child_key: str) -> ProductSpec:
-    """Parse a product identity supplied directly by the user's YAML."""
-
     required_fields = (
         "prod_id",
         "sub_prod_id",
@@ -107,17 +101,8 @@ def _parse_product(value: dict[str, Any], child_key: str) -> ProductSpec:
         raise MappingConfigError(
             f"child {child_key} product is missing fields: {', '.join(missing)}"
         )
-    text_fields = (
-        "prod_id",
-        "device_type",
-        "manufacturer",
-        "model",
-        "device_name",
-    )
-    if not all(
-        isinstance(value[field], str) and value[field]
-        for field in text_fields
-    ):
+    text_fields = ("prod_id", "device_type", "manufacturer", "model", "device_name")
+    if not all(isinstance(value[field], str) and value[field] for field in text_fields):
         raise MappingConfigError(f"child {child_key} product has an invalid text field")
     sub_prod_id = value["sub_prod_id"]
     if not isinstance(sub_prod_id, str):
@@ -140,7 +125,7 @@ def _parse_product(value: dict[str, Any], child_key: str) -> ProductSpec:
         )
     return ProductSpec(
         prod_id=value["prod_id"],
-        sub_prod_id=value["sub_prod_id"],
+        sub_prod_id=sub_prod_id,
         device_type=value["device_type"],
         manufacturer=value["manufacturer"],
         model=value["model"],
@@ -151,79 +136,119 @@ def _parse_product(value: dict[str, Any], child_key: str) -> ProductSpec:
     )
 
 
-def _parse_service(value: Any, child_key: str) -> ServiceRef:
-    if not isinstance(value, dict):
-        raise MappingConfigError(f"child {child_key} contains an invalid service")
-    service_type = value.get("st")
-    service_id = value.get("sid")
-    if not all(isinstance(item, str) and item for item in (service_type, service_id)):
-        raise MappingConfigError(f"child {child_key} contains an incomplete service")
-    return ServiceRef(service_type=service_type, service_id=service_id)
-
-
-def _parse_bindings(value: Any, child_key: str) -> list[BindingField]:
+def _parse_services(value: Any, child_key: str) -> tuple[ServiceRef, ...]:
     if value is None:
-        return []
+        return ()
+    if not isinstance(value, list):
+        raise MappingConfigError(f"child {child_key} product services must be a list")
+    result: list[ServiceRef] = []
+    service_ids: set[str] = set()
+    for raw_service in value:
+        if not isinstance(raw_service, dict):
+            raise MappingConfigError(f"child {child_key} contains an invalid service")
+        unknown = set(raw_service) - {"st", "sid", "contract"}
+        if unknown:
+            raise MappingConfigError(
+                f"child {child_key} service has unsupported fields: "
+                f"{', '.join(sorted(unknown))}"
+            )
+        service_type = raw_service.get("st")
+        service_id = raw_service.get("sid")
+        if not all(
+            isinstance(item, str) and item for item in (service_type, service_id)
+        ):
+            raise MappingConfigError(f"child {child_key} contains an incomplete service")
+        if service_id in service_ids:
+            raise MappingConfigError(f"child {child_key} selects service {service_id} twice")
+        try:
+            adapter = get_service_adapter(service_id)
+        except ValueError as error:
+            raise MappingConfigError(f"child {child_key} service {service_id} is not supported") from error
+        contract = _parse_contract(raw_service.get("contract"), child_key, service_id)
+        service = ServiceRef(service_type, service_id, contract)
+        try:
+            adapter.validate_service(service)
+        except ValueError as error:
+            raise MappingConfigError(
+                f"child {child_key} service {service_id} is invalid: {error}"
+            ) from error
+        service_ids.add(service_id)
+        result.append(service)
+    return tuple(result)
+
+
+def _parse_contract(
+    value: Any, child_key: str, service_id: str
+) -> tuple[tuple[str, object], ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, dict) or any(
+        not isinstance(key, str) or not key for key in value
+    ):
+        raise MappingConfigError(
+            f"child {child_key} service {service_id} contract must be a mapping"
+        )
+    return tuple(value.items())
+
+
+def _parse_bindings(value: Any, child_key: str) -> tuple[ServiceBinding, ...]:
+    if value is None:
+        return ()
     if not isinstance(value, list):
         raise MappingConfigError(f"child {child_key} bindings must be a list")
-    result: list[BindingField] = []
+    result: list[ServiceBinding] = []
+    binding_ids: set[str] = set()
     for raw_binding in value:
         if not isinstance(raw_binding, dict):
             raise MappingConfigError(f"child {child_key} contains an invalid binding")
+        unknown = set(raw_binding) - {"sid", "entities"}
+        if unknown:
+            raise MappingConfigError(
+                f"child {child_key} binding has unsupported fields: "
+                f"{', '.join(sorted(unknown))}"
+            )
         service_id = raw_binding.get("sid")
-        fields = raw_binding.get("fields")
+        entity_ids = raw_binding.get("entities")
         if not isinstance(service_id, str) or not service_id:
             raise MappingConfigError(f"child {child_key} binding has no sid")
-        if not isinstance(fields, dict):
-            raise MappingConfigError(f"child {child_key} binding fields must be a mapping")
-        for field_name, raw_field in fields.items():
-            if not isinstance(field_name, str) or not isinstance(raw_field, dict):
-                raise MappingConfigError(f"child {child_key} contains an invalid field binding")
-            source = raw_field.get("source")
-            if not isinstance(source, str) or not source:
-                raise MappingConfigError(f"child {child_key} field has no source")
-            if source not in {"state", "attribute", "constant", "command"}:
-                raise MappingConfigError(
-                    f"child {child_key} field source must be state, attribute, constant, or command"
-                )
-            entity_id = raw_field.get("entity_id")
-            if source in {"constant", "command"}:
-                if entity_id is not None and not isinstance(entity_id, str):
-                    raise MappingConfigError(f"child {child_key} field entity_id must be text")
-                if source == "constant" and "value" not in raw_field:
-                    raise MappingConfigError(f"child {child_key} constant field has no value")
-            elif not isinstance(entity_id, str) or not entity_id:
-                raise MappingConfigError(f"child {child_key} field has no entity_id")
-            attribute = raw_field.get("attribute")
-            if attribute is not None and not isinstance(attribute, str):
-                raise MappingConfigError(f"child {child_key} field attribute must be text")
-            component = raw_field.get("component")
-            if component is not None and component not in {"red", "green", "blue"}:
-                raise MappingConfigError(
-                    f"child {child_key} field component must be red, green, or blue"
-                )
-            result.append(
-                BindingField(
-                    service_id=service_id,
-                    field_name=field_name,
-                    entity_id=entity_id,
-                    source=source,
-                    attribute=attribute,
-                    component=component,
-                    value=raw_field.get("value"),
-                    ha_to_huawei=_mapping(raw_field.get("ha_to_huawei")),
-                    huawei_to_ha=_mapping(raw_field.get("huawei_to_ha")),
-                )
+        if service_id in binding_ids:
+            raise MappingConfigError(f"child {child_key} binds service {service_id} twice")
+        if (
+            not isinstance(entity_ids, list)
+            or not entity_ids
+            or any(not isinstance(entity_id, str) or not entity_id for entity_id in entity_ids)
+        ):
+            raise MappingConfigError(
+                f"child {child_key} binding {service_id} must contain non-empty entities"
             )
-    return result
+        binding_ids.add(service_id)
+        result.append(ServiceBinding(service_id, tuple(entity_ids)))
+    return tuple(result)
 
 
-def _mapping(value: Any) -> dict[str, Any]:
-    if value is None:
-        return {}
-    if not isinstance(value, dict):
-        raise MappingConfigError("value conversion must be a mapping")
-    return dict(value)
+def _validate_service_bindings(
+    child_key: str,
+    services: tuple[ServiceRef, ...],
+    bindings: tuple[ServiceBinding, ...],
+) -> None:
+    selected = {service.service_id for service in services}
+    bound = {binding.service_id for binding in bindings}
+    if selected != bound:
+        missing = sorted(selected - bound)
+        unknown = sorted(bound - selected)
+        details = []
+        if missing:
+            details.append(f"unbound services: {', '.join(missing)}")
+        if unknown:
+            details.append(f"bindings for unselected services: {', '.join(unknown)}")
+        raise MappingConfigError(f"child {child_key} has " + "; ".join(details))
+    for binding in bindings:
+        try:
+            get_service_adapter(binding.service_id).validate_entities(binding.entity_ids)
+        except ValueError as error:
+            raise MappingConfigError(
+                f"child {child_key} service {binding.service_id} is invalid: {error}"
+            ) from error
 
 
 def _optional_text(value: Any, key: str) -> str | None:

@@ -1,17 +1,5 @@
-# 这是每个网关首次添加时复制到其 .storage 目录的用户配置样例。
-#
-# 默认只注册一个用于验证链路的单品。它是普通用户子设备，用户可以删除；
-# 删除后点击“重载子设备配置”，云端和本地材料会按普通子设备一起清理。
-# identity、SN、UDID、devId 和认证材料由运行时生成并持久化，不写入这里。
-#
-# product 直接写在用户 YAML 中，不依赖集成内置产品目录：
-# prod_id 对应 DeviceId，sub_prod_id 对应 subDeviceTypeId，
-# device_type 对应 DeviceTypeId，manufacturer 对应 ManufacturerId。
-# ZJ0V 的 protType=1；known_fields_only=true 时不发送 subProdId/setupType。
-# fwv/hwv/swv 由集成 manifest 版本生成，不在用户 YAML 中配置。
-#
-# 用户新增实际设备时，复制 children 下的结构并填写自己的产品、服务和绑定。
-# product.services 可以为空，但只适用于没有 bindings 的链路探针；普通实体映射必须选择服务。
+# The S800 probe is intentionally kept as a removable user-side child. It has no
+# Huawei services and therefore no HA entity bindings.
 
 schema: 1
 enabled: true
@@ -19,11 +7,6 @@ gateway_serial: ""
 
 children:
   oneconnect_link_probe:
-    lifecycle:
-      on_product_change: block
-    display:
-      friendly_name: "尊界S800 Grand Design"
-
     product:
       prod_id: ZJ0V
       sub_prod_id: ""
@@ -34,8 +17,37 @@ children:
       protocol_type: 1
       setup_type: 0
       known_fields_only: true
-      services:
-        - st: car.ignition
-          sid: ignition
+      services: []
 
-    bindings: []
+  # 100z is a disabled example. Remove the leading "#" characters and replace
+  # the light entity before enabling it. Its brightness service uses the default
+  # 0..255 contract, and its switch service uses the Profile's binarySwitch st.
+  # color_bulb_100z:
+  #   product:
+  #     prod_id: 100z
+  #     sub_prod_id: ""
+  #     device_type: 01B
+  #     manufacturer: 02B
+  #     model: C21BB-QE27-10W-RGB/30-80-W
+  #     device_name: 三思全彩灯泡
+  #     protocol_type: 1
+  #     setup_type: 0
+  #     known_fields_only: true
+  #     services:
+  #       - st: binarySwitch
+  #         sid: switch
+  #       - st: brightness
+  #         sid: brightness
+  #       - st: cct
+  #         sid: cct
+  #       - st: colour
+  #         sid: colour
+  #   bindings:
+  #     - sid: switch
+  #       entities: [light.REPLACE_WITH_COLOR_BULB]
+  #     - sid: brightness
+  #       entities: [light.REPLACE_WITH_COLOR_BULB]
+  #     - sid: cct
+  #       entities: [light.REPLACE_WITH_COLOR_BULB]
+  #     - sid: colour
+  #       entities: [light.REPLACE_WITH_COLOR_BULB]
