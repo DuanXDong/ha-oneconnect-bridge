@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 import secrets
 from threading import RLock
-from typing import Any
 
 from ..core.cloud_runtime import (
     CloudM2MClient,
@@ -94,6 +93,7 @@ class ChildManager:
                     client.serial_number,
                     error,
                 )
+        self.prune_removed_children(client, access_token, self.plan)
         return success
 
     def _register_one(
@@ -110,34 +110,37 @@ class ChildManager:
             stored_identity is not None
             and stored_identity.get("product_id") != child.product.prod_id
         ):
-            if child.on_product_change != "replace":
-                raise ChildProtocolError(
-                    f"stored identity for {child.key} changed product from "
-                    f"{stored_identity.get('product_id')} to {child.product.prod_id}; "
-                    "set lifecycle.on_product_change to replace"
-                )
-            self._replace_one(
-                client,
-                access_token,
-                child,
-                integration_version=integration_version,
-                hardware_version=hardware_version,
-                old_identity=stored_identity,
-            )
-            return
+            self._remove_stored_child(client, access_token, child.key)
+            stored_identity = None
 
-        identity = self._load_or_create_identity(child)
         material_path = f"children/{child.key}/material.json"
-        stored = self.store.read_json(material_path)
-        material: ChildMaterial | None = None
-        if stored is not None:
-            material = material_from_storage(stored)
-            if material.serial_number != identity.serial_number or material.udid != identity.udid:
-                raise ChildProtocolError(
-                    f"stored material for {child.key} does not match its identity"
+        if stored_identity is not None:
+            identity = self._identity_from_storage(child.key, stored_identity)
+            stored_material = self.store.read_json(material_path)
+            if stored_material is not None:
+                material = material_from_storage(stored_material)
+                if (
+                    material.serial_number != identity.serial_number
+                    or material.udid != identity.udid
+                ):
+                    raise ChildProtocolError(
+                        f"stored material for {child.key} does not match its identity"
+                    )
+                self._activate_child(
+                    client,
+                    access_token,
+                    child,
+                    identity,
+                    material,
+                    integration_version=integration_version,
+                    hardware_version=hardware_version,
                 )
+                return
+            self.store.remove_child(child.key)
 
-        if material is None:
+        identity = self._new_identity(child)
+        material: ChildMaterial | None = None
+        try:
             response = client.request(
                 "child_batch_bind",
                 build_batch_bind_request(
@@ -151,22 +154,32 @@ class ChildManager:
                 ),
             )
             material = parse_batch_bind_response(response, identity=identity)
-            self.store.write_json(
-                material_path,
-                material.as_storage(
-                    product_id=identity.product_id,
-                    sub_product_id=identity.sub_product_id,
-                ),
+            self._activate_child(
+                client,
+                access_token,
+                child,
+                identity,
+                material,
+                integration_version=integration_version,
+                hardware_version=hardware_version,
             )
+        except Exception:
+            if material is not None:
+                self._delete_cloud_child(
+                    client, access_token, material, "child_batch_delete_failed_registration"
+                )
+            raise
 
-        self._activate_child(
-            client,
-            access_token,
-            child,
-            identity,
-            material,
-            integration_version=integration_version,
-            hardware_version=hardware_version,
+        self.store.write_json(
+            f"children/{child.key}/identity.json",
+            self._identity_storage(identity),
+        )
+        self.store.write_json(
+            material_path,
+            material.as_storage(
+                product_id=identity.product_id,
+                sub_product_id=identity.sub_product_id,
+            ),
         )
 
     def _activate_child(
@@ -181,10 +194,6 @@ class ChildManager:
         hardware_version: str,
     ) -> None:
         """Publish identity and initial state for one already-bound child."""
-
-        with self._lock:
-            self._materials[material.dev_id] = (child, identity, material)
-        self._flush_pending_state(child.key, client)
 
         dev_info = client.request(
             "child_dev_info_sync",
@@ -220,6 +229,13 @@ class ChildManager:
             dev_info.get("errcode"),
             status.get("errcode"),
         )
+        if status.get("errcode") not in {0, 1000}:
+            raise CloudRuntimeError(
+                f"child {child.key} statusSync errcode {status.get('errcode')}"
+            )
+        with self._lock:
+            self._materials[material.dev_id] = (child, identity, material)
+        self._flush_pending_state(child.key, client)
         if child.room:
             try:
                 room_response = client.request(
@@ -298,138 +314,6 @@ class ChildManager:
                         error,
                     )
 
-    def _replace_one(
-        self,
-        client: CloudM2MClient,
-        access_token: str,
-        child,
-        *,
-        integration_version: str,
-        hardware_version: str,
-        old_identity: dict[str, Any],
-    ) -> None:
-        """Register the new model first, then remove the old cloud child."""
-
-        old_material_data = self.store.read_json(f"children/{child.key}/material.json")
-        if old_material_data is None:
-            raise ChildProtocolError(
-                f"cannot replace {child.key}: old child material is missing"
-            )
-        old_material = material_from_storage(old_material_data)
-
-        replacement_identity_path = f"children/{child.key}/replacement/identity.json"
-        replacement_material_path = f"children/{child.key}/replacement/material.json"
-        pending_identity = self.store.read_json(replacement_identity_path)
-        if pending_identity is None:
-            new_identity = ChildIdentity(
-                serial_number=secrets.token_hex(12).upper(),
-                udid=secrets.token_hex(32),
-                product_id=child.product.prod_id,
-                sub_product_id=child.product.sub_prod_id,
-            )
-            pending_identity = {
-                "schema": "hwhomebridge-python.child-identity.v1",
-                "product_id": new_identity.product_id,
-                "sub_product_id": new_identity.sub_product_id,
-                "serial_number": new_identity.serial_number,
-                "udid": new_identity.udid,
-            }
-            self.store.write_json(replacement_identity_path, pending_identity)
-        else:
-            new_identity = ChildIdentity(
-                serial_number=str(pending_identity["serial_number"]),
-                udid=str(pending_identity["udid"]),
-                product_id=str(pending_identity["product_id"]),
-                sub_product_id=str(pending_identity["sub_product_id"]),
-            )
-        if new_identity.product_id != child.product.prod_id:
-            raise ChildProtocolError(
-                f"replacement identity for {child.key} targets {new_identity.product_id}"
-            )
-
-        pending_material_data = self.store.read_json(replacement_material_path)
-        if pending_material_data is None:
-            bind_response = client.request(
-                "child_batch_bind_replacement",
-                build_batch_bind_request(
-                    access_token=access_token,
-                    token=secrets.token_bytes(2),
-                    identity=new_identity,
-                    plan=child,
-                    firmware_version=integration_version,
-                    hardware_version=hardware_version,
-                    software_version=integration_version,
-                ),
-            )
-            new_material = parse_batch_bind_response(bind_response, identity=new_identity)
-            self.store.write_json(
-                replacement_material_path,
-                new_material.as_storage(
-                    product_id=new_identity.product_id,
-                    sub_product_id=new_identity.sub_product_id,
-                ),
-            )
-        else:
-            new_material = material_from_storage(pending_material_data)
-
-        self._activate_child(
-            client,
-            access_token,
-            child,
-            new_identity,
-            new_material,
-            integration_version=integration_version,
-            hardware_version=hardware_version,
-        )
-
-        delete_response = client.request(
-            "child_batch_delete_replaced",
-            build_batch_delete_request(
-                access_token=access_token,
-                token=secrets.token_bytes(2),
-                material=old_material,
-            ),
-        )
-        if delete_response.get("errcode") != 0:
-            self.store.write_json(
-                f"children/{child.key}/replacement.json",
-                {
-                    "schema": "hwhomebridge-python.replacement.v1",
-                    "stage": "old_delete_pending",
-                    "old_product_id": old_identity.get("product_id"),
-                    "new_product_id": new_identity.product_id,
-                    "old_dev_id": old_material.dev_id,
-                    "new_dev_id": new_material.dev_id,
-                    "errcode": delete_response.get("errcode"),
-                },
-            )
-            raise CloudRuntimeError(
-                f"old child delete returned {delete_response.get('errcode')}"
-            )
-
-        self.store.write_json(
-            f"children/{child.key}/identity.json",
-            pending_identity,
-        )
-        self.store.write_json(
-            f"children/{child.key}/material.json",
-            new_material.as_storage(
-                product_id=new_identity.product_id,
-                sub_product_id=new_identity.sub_product_id,
-            ),
-        )
-        for relative in (replacement_identity_path, replacement_material_path,
-                         f"children/{child.key}/replacement.json"):
-            path = self.store.path(relative)
-            if path.is_file():
-                path.unlink()
-        _LOGGER.info(
-            "Child %s replaced product %s with %s",
-            child.key,
-            old_identity.get("product_id"),
-            new_identity.product_id,
-        )
-
     def prune_removed_children(
         self,
         client: CloudM2MClient,
@@ -443,44 +327,14 @@ class ChildManager:
             if desired_plan is not None
             else set()
         )
-        old_children = {child.key: child for child in self.plan.children}
-        for child_key in sorted(set(old_children) - desired_keys):
-            material_record = next(
-                (
-                    record
-                    for record in self._materials.values()
-                    if record[0].key == child_key
-                ),
-                None,
+        known_keys = {
+            child.key for child in self.plan.children
+        } | set(self.store.read_child_materials())
+        for child_key in sorted(known_keys - desired_keys):
+            self._remove_stored_child(
+                client, access_token, child_key, "child_batch_delete_removed"
             )
-            if material_record is None:
-                material_data = self.store.read_json(
-                    f"children/{child_key}/material.json"
-                )
-                if material_data is None:
-                    raise ChildProtocolError(
-                        f"removed child {child_key} has no cloud material"
-                    )
-                material = material_from_storage(material_data)
-            else:
-                material = material_record[2]
-            response = client.request(
-                "child_batch_delete_removed",
-                build_batch_delete_request(
-                    access_token=access_token,
-                    token=secrets.token_bytes(2),
-                    material=material,
-                ),
-            )
-            if response.get("errcode") != 0:
-                raise CloudRuntimeError(
-                    f"removed child {child_key} delete returned "
-                    f"{response.get('errcode')}"
-                )
-            self.store.remove_child(child_key)
-            _LOGGER.info(
-                "Removed child %s from cloud and gateway storage", child_key
-            )
+            _LOGGER.info("Removed child %s from gateway storage", child_key)
 
     def handle_cloud_command(
         self, client: CloudM2MClient, message
@@ -587,28 +441,7 @@ class ChildManager:
         self._data_sequence = (self._data_sequence + 1) & 0xFF
         return value
 
-    def _load_or_create_identity(self, child) -> ChildIdentity:
-        relative = f"children/{child.key}/identity.json"
-        stored = self.store.read_json(relative)
-        if stored is None:
-            identity = ChildIdentity(
-                serial_number=secrets.token_hex(12).upper(),
-                udid=secrets.token_hex(32),
-                product_id=child.product.prod_id,
-                sub_product_id=child.product.sub_prod_id,
-            )
-            self.store.write_json(
-                relative,
-                {
-                    "schema": "hwhomebridge-python.child-identity.v1",
-                    "product_id": identity.product_id,
-                    "sub_product_id": identity.sub_product_id,
-                    "serial_number": identity.serial_number,
-                    "udid": identity.udid,
-                },
-            )
-            return identity
-
+    def _identity_from_storage(self, child_key: str, stored) -> ChildIdentity:
         try:
             identity = ChildIdentity(
                 serial_number=str(stored["serial_number"]),
@@ -617,10 +450,80 @@ class ChildManager:
                 sub_product_id=str(stored["sub_product_id"]),
             )
         except (KeyError, TypeError, ValueError) as error:
-            raise ChildProtocolError(f"stored identity for {child.key} is incomplete") from error
-        if identity.product_id != child.product.prod_id:
             raise ChildProtocolError(
-                f"child {child.key} changed product from {identity.product_id} "
-                f"to {child.product.prod_id}; remove the old child first"
-            )
+                f"stored identity for {child_key} is incomplete"
+            ) from error
         return identity
+
+    @staticmethod
+    def _new_identity(child) -> ChildIdentity:
+        return ChildIdentity(
+            serial_number=secrets.token_hex(12).upper(),
+            udid=secrets.token_hex(32),
+            product_id=child.product.prod_id,
+            sub_product_id=child.product.sub_prod_id,
+        )
+
+    @staticmethod
+    def _identity_storage(identity: ChildIdentity) -> dict[str, str]:
+        return {
+            "schema": "hwhomebridge-python.child-identity.v1",
+            "product_id": identity.product_id,
+            "sub_product_id": identity.sub_product_id,
+            "serial_number": identity.serial_number,
+            "udid": identity.udid,
+        }
+
+    def _remove_stored_child(
+        self,
+        client: CloudM2MClient,
+        access_token: str,
+        child_key: str,
+        request_name: str = "child_batch_delete_replaced",
+    ) -> None:
+        try:
+            stored_material = self.store.read_json(
+                f"children/{child_key}/material.json"
+            )
+            if stored_material is not None:
+                self._delete_cloud_child(
+                    client,
+                    access_token,
+                    material_from_storage(stored_material),
+                    request_name,
+                )
+        except Exception as error:  # noqa: BLE001 - local cleanup must continue
+            _LOGGER.warning("Unable to delete old child %s from cloud: %s", child_key, error)
+        finally:
+            self.store.remove_child(child_key)
+            with self._lock:
+                for dev_id, record in tuple(self._materials.items()):
+                    if record[0].key == child_key:
+                        del self._materials[dev_id]
+                self._pending_state.pop(child_key, None)
+            _LOGGER.info("Discarded previous product state for child %s", child_key)
+
+    @staticmethod
+    def _delete_cloud_child(
+        client: CloudM2MClient,
+        access_token: str,
+        material: ChildMaterial,
+        request_name: str,
+    ) -> None:
+        try:
+            response = client.request(
+                request_name,
+                build_batch_delete_request(
+                    access_token=access_token,
+                    token=secrets.token_bytes(2),
+                    material=material,
+                ),
+            )
+            if response.get("errcode") != 0:
+                _LOGGER.warning(
+                    "Cloud child delete devId=%s returned %s",
+                    material.dev_id,
+                    response.get("errcode"),
+                )
+        except Exception as error:  # noqa: BLE001 - caller owns local cleanup
+            _LOGGER.warning("Cloud child delete devId=%s failed: %s", material.dev_id, error)
