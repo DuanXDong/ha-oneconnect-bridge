@@ -13,6 +13,8 @@ _SERVICE_ADAPTERS: dict[str, ServiceAdapter] = {
     adapter.service_id: adapter
     for adapter in (SWITCH, BRIGHTNESS, CCT, COLOUR)
 }
+for _service_id in ("switch1", "switch2", "switch3"):
+    _SERVICE_ADAPTERS[_service_id] = SWITCH
 
 
 def get_service_adapter(service_id: str) -> ServiceAdapter:

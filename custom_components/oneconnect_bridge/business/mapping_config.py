@@ -63,14 +63,6 @@ def load_enabled_mapping(path: Path) -> GatewayPlan | None:
             raise MappingConfigError(f"child {key} display must be a mapping")
         friendly_name = _optional_text(display, "friendly_name")
         room = _optional_text(display, "room")
-        lifecycle = raw_child.get("lifecycle") or {}
-        if not isinstance(lifecycle, dict):
-            raise MappingConfigError(f"child {key} lifecycle must be a mapping")
-        on_product_change = lifecycle.get("on_product_change", "block")
-        if on_product_change not in {"block", "replace"}:
-            raise MappingConfigError(
-                f"child {key} on_product_change must be block or replace"
-            )
         children.append(
             ChildPlan(
                 key=key,
@@ -79,7 +71,6 @@ def load_enabled_mapping(path: Path) -> GatewayPlan | None:
                 room=room,
                 services=services,
                 bindings=bindings,
-                on_product_change=on_product_change,
             )
         )
     return GatewayPlan(gateway_serial=gateway_serial, children=tuple(children))

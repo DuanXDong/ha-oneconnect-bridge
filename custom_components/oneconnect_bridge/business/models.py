@@ -40,7 +40,6 @@ class ChildPlan:
     room: str | None
     services: tuple[ServiceRef, ...]
     bindings: tuple[ServiceBinding, ...] = ()
-    on_product_change: str = "block"
 
 
 @dataclass(frozen=True)
