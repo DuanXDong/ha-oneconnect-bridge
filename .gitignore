@@ -18,6 +18,7 @@ dist/
 pip-wheel-metadata/
 
 # Test and coverage output
+tests/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/

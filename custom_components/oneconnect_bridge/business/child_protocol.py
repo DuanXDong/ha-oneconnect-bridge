@@ -228,7 +228,10 @@ def build_dev_info_sync_request(
                     hardware_version=hardware_version,
                     software_version=software_version,
                 ),
-                "services": [],
+                "services": [
+                    {"st": service.service_type, "sid": service.service_id}
+                    for service in plan.services
+                ],
             }]
         ),
     )
@@ -240,7 +243,7 @@ def build_status_sync_request(
     return BridgeCloudRequest(
         code=COAP_POST,
         token=token,
-        paths=("device", "v3", "statusSync"),
+        paths=(".sys", "statusSync"),
         sequence=b"",
         access_token=access_token,
         payload=encode_bridge_compact_json(
