@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
@@ -21,19 +20,16 @@ class ProductSpec:
 class ServiceRef:
     service_type: str
     service_id: str
+    contract: tuple[tuple[str, object], ...] = ()
+
+    def contract_value(self, key: str, default: object = None) -> object:
+        return dict(self.contract).get(key, default)
 
 
 @dataclass(frozen=True)
-class BindingField:
+class ServiceBinding:
     service_id: str
-    field_name: str
-    entity_id: str | None
-    source: str
-    attribute: str | None = None
-    component: str | None = None
-    value: Any | None = None
-    ha_to_huawei: dict[str, Any] = field(default_factory=dict)
-    huawei_to_ha: dict[str, Any] = field(default_factory=dict)
+    entity_ids: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -43,7 +39,7 @@ class ChildPlan:
     friendly_name: str | None
     room: str | None
     services: tuple[ServiceRef, ...]
-    bindings: tuple[BindingField, ...]
+    bindings: tuple[ServiceBinding, ...] = ()
     on_product_change: str = "block"
 
 
