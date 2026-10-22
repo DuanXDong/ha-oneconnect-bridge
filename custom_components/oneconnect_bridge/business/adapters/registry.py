@@ -16,6 +16,7 @@ from .humidity import ADAPTER as HUMIDITY
 from .mode import ADAPTER as MODE
 from .motor import ADAPTER as MOTOR
 from .open_level import ADAPTER as OPEN_LEVEL
+from .opener import ADAPTER as OPENER
 from .status import ADAPTER as STATUS
 from .switch import ADAPTER as SWITCH
 from .temperature import ADAPTER as TEMPERATURE
@@ -33,6 +34,7 @@ _SERVICE_ADAPTERS: dict[str, ServiceAdapter] = {
         AIR_DETECTOR,
         MOTOR,
         OPEN_LEVEL,
+        OPENER,
         HCHO,
         ALARM,
         GAS_SENSOR,
