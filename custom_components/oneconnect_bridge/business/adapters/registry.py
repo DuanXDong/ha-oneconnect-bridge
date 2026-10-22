@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from .api import ServiceAdapter
+from .alarm import ADAPTER as ALARM
 from .air_detector import ADAPTER as AIR_DETECTOR
 from .brightness import ADAPTER as BRIGHTNESS
 from .cct import ADAPTER as CCT
 from .cleaner_robot import ADAPTER as CLEANER_ROBOT
 from .colour import ADAPTER as COLOUR
+from .gas_sensor import ADAPTER as GAS_SENSOR
 from .fan import ADAPTER as FAN
 from .hcho import ADAPTER as HCHO
 from .humidity import ADAPTER as HUMIDITY
@@ -31,6 +33,8 @@ _SERVICE_ADAPTERS: dict[str, ServiceAdapter] = {
         MOTOR,
         OPEN_LEVEL,
         HCHO,
+        ALARM,
+        GAS_SENSOR,
         MODE,
         FAN,
         CLEANER_ROBOT,
