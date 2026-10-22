@@ -6,12 +6,15 @@ from .api import ServiceAdapter
 from .brightness import ADAPTER as BRIGHTNESS
 from .cct import ADAPTER as CCT
 from .colour import ADAPTER as COLOUR
+from .motor import ADAPTER as MOTOR
+from .open_level import ADAPTER as OPEN_LEVEL
 from .hcho import ADAPTER as HCHO
 from .switch import ADAPTER as SWITCH
 
 
 _SERVICE_ADAPTERS: dict[str, ServiceAdapter] = {
     adapter.service_id: adapter
+    for adapter in (SWITCH, BRIGHTNESS, CCT, COLOUR, MOTOR, OPEN_LEVEL)
     for adapter in (SWITCH, BRIGHTNESS, CCT, COLOUR, HCHO)
 }
 for _service_id in ("switch1", "switch2", "switch3"):
