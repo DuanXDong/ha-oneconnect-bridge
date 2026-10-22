@@ -49,25 +49,25 @@ def load_enabled_mapping(path: Path) -> GatewayPlan | None:
                 f"child {key} uses removed adapter configuration; "
                 "select services and bind HA entities instead"
             )
+        if "display" in raw_child:
+            raise MappingConfigError(
+                f"child {key} uses removed display configuration; "
+                "put friendly_name and room under product"
+            )
 
         raw_product = raw_child.get("product")
         if not isinstance(raw_product, dict):
             raise MappingConfigError(f"child {key} has no product mapping")
         product = _parse_product(raw_product, key)
+        room = _optional_text(raw_product, "room")
         services = _parse_services(raw_product.get("services"), key)
         bindings = _parse_bindings(raw_child.get("bindings"), key)
         _validate_service_bindings(key, services, bindings)
 
-        display = raw_child.get("display")
-        if display is not None and not isinstance(display, dict):
-            raise MappingConfigError(f"child {key} display must be a mapping")
-        friendly_name = _optional_text(display, "friendly_name")
-        room = _optional_text(display, "room")
         children.append(
             ChildPlan(
                 key=key,
                 product=product,
-                friendly_name=friendly_name,
                 room=room,
                 services=services,
                 bindings=bindings,
@@ -77,13 +77,16 @@ def load_enabled_mapping(path: Path) -> GatewayPlan | None:
 
 
 def _parse_product(value: dict[str, Any], child_key: str) -> ProductSpec:
+    if "device_name" in value:
+        raise MappingConfigError(
+            f"child {child_key} product uses removed device_name; use friendly_name"
+        )
     required_fields = (
         "prod_id",
         "sub_prod_id",
         "device_type",
         "manufacturer",
         "model",
-        "device_name",
         "protocol_type",
         "setup_type",
     )
@@ -92,7 +95,7 @@ def _parse_product(value: dict[str, Any], child_key: str) -> ProductSpec:
         raise MappingConfigError(
             f"child {child_key} product is missing fields: {', '.join(missing)}"
         )
-    text_fields = ("prod_id", "device_type", "manufacturer", "model", "device_name")
+    text_fields = ("prod_id", "device_type", "manufacturer", "model")
     if not all(isinstance(value[field], str) and value[field] for field in text_fields):
         raise MappingConfigError(f"child {child_key} product has an invalid text field")
     sub_prod_id = value["sub_prod_id"]
@@ -120,9 +123,9 @@ def _parse_product(value: dict[str, Any], child_key: str) -> ProductSpec:
         device_type=value["device_type"],
         manufacturer=value["manufacturer"],
         model=value["model"],
-        device_name=value["device_name"],
         protocol_type=value["protocol_type"],
         setup_type=value["setup_type"],
+        friendly_name=_optional_text(value, "friendly_name"),
         known_fields_only=known_fields_only,
     )
 
@@ -247,5 +250,5 @@ def _optional_text(value: Any, key: str) -> str | None:
         return None
     result = value[key]
     if result is not None and not isinstance(result, str):
-        raise MappingConfigError(f"display {key} must be text")
+        raise MappingConfigError(f"product {key} must be text")
     return result

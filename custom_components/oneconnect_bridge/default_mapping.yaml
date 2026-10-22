@@ -13,7 +13,7 @@ children:
       device_type: "347"
       manufacturer: "002"
       model: "MAEXTRO-S800 Grand Design"
-      device_name: "尊界S800 Grand Design"
+      friendly_name: "尊界S800 Grand Design"
       protocol_type: 1
       setup_type: 0
       known_fields_only: true
@@ -29,7 +29,8 @@ children:
   #     device_type: 01B
   #     manufacturer: 02B
   #     model: C21BB-QE27-10W-RGB/30-80-W
-  #     device_name: 三思全彩灯泡
+  #     friendly_name: 全彩灯泡
+  #     room: 客厅
   #     protocol_type: 1
   #     setup_type: 0
   #     known_fields_only: true
