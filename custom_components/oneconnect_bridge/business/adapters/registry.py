@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .action import ADAPTER as ACTION
 from .api import ServiceAdapter
 from .alarm import ADAPTER as ALARM
 from .air_detector import ADAPTER as AIR_DETECTOR
@@ -40,6 +41,7 @@ _SERVICE_ADAPTERS: dict[str, ServiceAdapter] = {
         FAN,
         CLEANER_ROBOT,
         STATUS,
+        ACTION,
     )
 }
 for _service_id in ("switch1", "switch2", "switch3"):
