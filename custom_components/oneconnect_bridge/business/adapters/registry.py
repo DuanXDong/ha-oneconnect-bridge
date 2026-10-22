@@ -3,17 +3,29 @@
 from __future__ import annotations
 
 from .api import ServiceAdapter
+from .air_detector import ADAPTER as AIR_DETECTOR
 from .brightness import ADAPTER as BRIGHTNESS
 from .cct import ADAPTER as CCT
 from .colour import ADAPTER as COLOUR
+from .humidity import ADAPTER as HUMIDITY
 from .motor import ADAPTER as MOTOR
 from .open_level import ADAPTER as OPEN_LEVEL
 from .hcho import ADAPTER as HCHO
 from .switch import ADAPTER as SWITCH
+from .temperature import ADAPTER as TEMPERATURE
 
 
 _SERVICE_ADAPTERS: dict[str, ServiceAdapter] = {
     adapter.service_id: adapter
+    for adapter in (
+        SWITCH,
+        BRIGHTNESS,
+        CCT,
+        COLOUR,
+        TEMPERATURE,
+        HUMIDITY,
+        AIR_DETECTOR,
+    )
     for adapter in (SWITCH, BRIGHTNESS, CCT, COLOUR, MOTOR, OPEN_LEVEL)
     for adapter in (SWITCH, BRIGHTNESS, CCT, COLOUR, HCHO)
 }
