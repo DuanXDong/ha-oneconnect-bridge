@@ -7,10 +7,13 @@ from .alarm import ADAPTER as ALARM
 from .air_detector import ADAPTER as AIR_DETECTOR
 from .brightness import ADAPTER as BRIGHTNESS
 from .cct import ADAPTER as CCT
+from .cleaner_robot import ADAPTER as CLEANER_ROBOT
 from .colour import ADAPTER as COLOUR
 from .gas_sensor import ADAPTER as GAS_SENSOR
+from .fan import ADAPTER as FAN
 from .hcho import ADAPTER as HCHO
 from .humidity import ADAPTER as HUMIDITY
+from .mode import ADAPTER as MODE
 from .motor import ADAPTER as MOTOR
 from .open_level import ADAPTER as OPEN_LEVEL
 from .switch import ADAPTER as SWITCH
@@ -32,6 +35,9 @@ _SERVICE_ADAPTERS: dict[str, ServiceAdapter] = {
         HCHO,
         ALARM,
         GAS_SENSOR,
+        MODE,
+        FAN,
+        CLEANER_ROBOT,
     )
 }
 for _service_id in ("switch1", "switch2", "switch3"):
