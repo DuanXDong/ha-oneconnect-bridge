@@ -60,8 +60,8 @@ class ChildIdentity:
         }
         if not plan.product.known_fields_only:
             value["subProdId"] = self.sub_product_id
-        if include_device_name:
-            value["deviceName"] = plan.friendly_name or plan.product.device_name
+        if include_device_name and plan.product.friendly_name:
+            value["deviceName"] = plan.product.friendly_name
         value["protType"] = plan.product.protocol_type
         if not plan.product.known_fields_only:
             value["setupType"] = plan.product.setup_type

@@ -10,9 +10,9 @@ class ProductSpec:
     device_type: str
     manufacturer: str
     model: str
-    device_name: str
     protocol_type: int
     setup_type: int
+    friendly_name: str | None = None
     known_fields_only: bool = False
 
 
@@ -36,7 +36,6 @@ class ServiceBinding:
 class ChildPlan:
     key: str
     product: ProductSpec
-    friendly_name: str | None
     room: str | None
     services: tuple[ServiceRef, ...]
     bindings: tuple[ServiceBinding, ...] = ()
