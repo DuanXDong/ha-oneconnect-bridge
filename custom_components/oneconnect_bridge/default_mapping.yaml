@@ -1,5 +1,5 @@
-# The S800 probe is intentionally kept as a removable user-side child. It has no
-# Huawei services and therefore no HA entity bindings.
+# 尊界S800模型在添加网关时就会自动注册并显示到智慧生活它只是为了验证您的网关工作没有问题。
+# 在正式添加子设备时你可以随时删除它
 
 schema: 1
 enabled: true
@@ -19,30 +19,34 @@ children:
       known_fields_only: true
       services: []
 
-  # 100z is a disabled example. Remove the leading "#" characters and replace
-  # the light entity before enabling it. Its brightness service uses the default
-  # 0..255 contract, and its switch service uses the Profile's binarySwitch st.
-  # color_bulb_100z:
+  # 以下子设备都是华为专为Home Assistant构建的专属物模型，你可以取消注释并修改对应的HA实体进行投影
+  # 如果你需要投影更多华为设备，那么只需要复制对应的条目替换实体即可
+  # 如果您需要自定义物模型那么您需要从华为Iot资料库找到对应的prodid自定包装注册设备信息。对于出现15013云端拒绝普遍都是产品设备信息包装错误。
+  # 对于HA实体和华为服务不对等的情况您可以进行自定义覆盖。
+
+  # color_bulb_9mu7:
   #   product:
-  #     prod_id: 100z
-  #     sub_prod_id: ""
-  #     device_type: 01B
-  #     manufacturer: 02B
-  #     model: C21BB-QE27-10W-RGB/30-80-W
-  #     friendly_name: 全彩灯泡
+  #     prod_id: 9MU7
+  #     sub_prod_id: "00"
+  #     device_type: "119"
+  #     manufacturer: "002"
+  #     model: haTest10
+  #     friendly_name: 智控灯泡
   #     room: 客厅
-  #     protocol_type: 1
+  #     protocol_type: 6
   #     setup_type: 0
-  #     known_fields_only: true
+  #     known_fields_only: false
   #     services:
-  #       - st: binarySwitch
+  #       - st: switch
   #         sid: switch
   #       - st: brightness
   #         sid: brightness
+  #         contract:
+  #           min: 0
+  #           max: 100
+  #           step: 1
   #       - st: cct
   #         sid: cct
-  #       - st: colour
-  #         sid: colour
   #   bindings:
   #     - sid: switch
   #       entities: [light.REPLACE_WITH_COLOR_BULB]
@@ -50,5 +54,76 @@ children:
   #       entities: [light.REPLACE_WITH_COLOR_BULB]
   #     - sid: cct
   #       entities: [light.REPLACE_WITH_COLOR_BULB]
-  #     - sid: colour
-  #       entities: [light.REPLACE_WITH_COLOR_BULB]
+
+  # air_conditioner_9mxo:
+  #   product:
+  #     prod_id: 9MXO
+  #     sub_prod_id: "00"
+  #     device_type: "012"
+  #     manufacturer: "002"
+  #     model: test20
+  #     friendly_name: 智控空调
+  #     room: 客厅
+  #     protocol_type: 6
+  #     setup_type: 0
+  #     known_fields_only: false
+  #     services:
+  #       - st: switch
+  #         sid: switch
+  #         contract:
+  #           on_mode: cool
+  #       - st: mode
+  #         sid: mode
+  #         contract:
+  #           values:
+  #             cool: 2
+  #             heat: 3
+  #             fan_only: 4
+  #       - st: temperature
+  #         sid: temperature
+  #       - st: fan
+  #         sid: fan
+  #         contract:
+  #           gear_values:
+  #             auto: 0
+  #             low: 1
+  #             medium: 2
+  #             high: 3
+  #           direction_enabled: false
+  #   bindings:
+  #     - sid: switch
+  #       entities: [climate.REPLACE_WITH_AIR_CONDITIONER]
+  #     - sid: mode
+  #       entities: [climate.REPLACE_WITH_AIR_CONDITIONER]
+  #     - sid: temperature
+  #       entities: [climate.REPLACE_WITH_AIR_CONDITIONER]
+  #     - sid: fan
+  #       entities: [climate.REPLACE_WITH_AIR_CONDITIONER]
+
+  # curtain_9my5:
+  #   product:
+  #     prod_id: 9MY5
+  #     sub_prod_id: "00"
+  #     device_type: "01C"
+  #     manufacturer: "002"
+  #     model: haTest23
+  #     friendly_name: 智控窗帘
+  #     room: 客厅
+  #     protocol_type: 6
+  #     setup_type: 0
+  #     known_fields_only: false
+  #     services:
+  #       - st: action
+  #         sid: leftAction
+  #         contract:
+  #           commands:
+  #             0: close
+  #             1: open
+  #             2: stop
+  #       - st: opener
+  #         sid: opener
+  #   bindings:
+  #     - sid: leftAction
+  #       entities: [cover.REPLACE_WITH_CURTAIN]
+  #     - sid: opener
+  #       entities: [cover.REPLACE_WITH_CURTAIN]

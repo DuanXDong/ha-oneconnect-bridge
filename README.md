@@ -35,6 +35,13 @@ OneConnect Bridge 是一个运行在 Home Assistant 中、基于 OneConnect 技�
 
 ### 1. 安装
 
+通过 HACS 安装：
+
+1. 打开 `HACS → 集成`，点击右上角菜单并选择“自定义存储库”。
+2. 添加仓库地址 `https://github.com/xiasi0/ha-oneconnect-bridge`，类型选择 `Integration`。
+3. 搜索并下载 `OneConnect Bridge`。
+4. 重启 Home Assistant。
+
 手动安装：
 
 ```text
@@ -71,6 +78,8 @@ config/custom_components/oneconnect_bridge/
 ```
 
 首次添加网关时，集成会从 [default_mapping.yaml](custom_components/oneconnect_bridge/default_mapping.yaml) 复制样例。编辑对应网关的 `mapping.yaml`，为子设备填写华为产品身份、启用的服务和对应 HA 实体。
+
+仓库提供的预置子设备模型及其 H5 页面、Profile 见[预置子设备模型](docs/preconfigured-child-products.md)。
 
 每个服务由对应的服务适配器负责特征值、范围、HA 状态读取及 HA 命令调用。适配器开放的 `contract` 字段用于填写单品的 Profile 差异。
 
