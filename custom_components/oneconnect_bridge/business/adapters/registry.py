@@ -48,6 +48,7 @@ _SERVICE_ADAPTERS: dict[str, ServiceAdapter] = {
 }
 for _service_id in ("switch1", "switch2", "switch3"):
     _SERVICE_ADAPTERS[_service_id] = SWITCH
+_SERVICE_ADAPTERS["leftAction"] = ACTION
 
 
 def get_service_adapter(service_id: str) -> ServiceAdapter:

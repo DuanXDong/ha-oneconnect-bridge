@@ -10,10 +10,11 @@ Default contract source
                 this repository's projection yet; promote it only after the five
                 acceptance steps in ``docs/service-adapter-contributing.md``.
 
-Contract (no key is opened here)
-    The Profile enum is fixed: ``1`` auto / ``2`` cool / ``3`` heat /
-    ``4`` fan_only / ``5`` dry. A Profile that enumerates the modes differently
-    needs this adapter extended instead of a contract override.
+Contract
+    The default Profile enum is ``1`` auto / ``2`` cool / ``3`` heat /
+    ``4`` fan_only / ``5`` dry. A Profile with a different enum can override it
+    with ``contract.values``; keys are Home Assistant HVAC modes and values are
+    the Huawei integer enum values.
 
 Two rules from the device itself:
 
@@ -21,17 +22,15 @@ Two rules from the device itself:
   the cloud drop the whole service (the air conditioner then shows only its
   power switch in the app).
 * ``off`` has no enum value in the Profile, so the mode service stays silent
-  while the entity is off. Power belongs to the ``switch`` service, which is
-  bound with ``on_type: bool``; because that adapter rejects ``climate``
-  entities the power state needs a holder switch (a template switch works).
+  while the entity is off. Power belongs to the ``switch`` service, which can
+  bind the same climate entity and use ``contract.on_mode`` when turning it on.
 """
 
 from __future__ import annotations
 
 from ..models import ServiceRef
 
-_HA_TO_MODE = {"auto": 1, "cool": 2, "heat": 3, "fan_only": 4, "dry": 5}
-_MODE_TO_HA = {value: name for name, value in _HA_TO_MODE.items()}
+_DEFAULT_HA_TO_MODE = {"auto": 1, "cool": 2, "heat": 3, "fan_only": 4, "dry": 5}
 
 
 class ModeServiceAdapter:
@@ -40,7 +39,7 @@ class ModeServiceAdapter:
     def validate_service(self, service: ServiceRef) -> None:
         if service.service_type != "mode":
             raise ValueError("mode requires st: mode")
-        unknown = set(dict(service.contract))
+        unknown = set(dict(service.contract)) - {"values"}
         if unknown:
             raise ValueError(
                 f"mode has unsupported contract keys: {', '.join(sorted(unknown))}"
@@ -58,7 +57,7 @@ class ModeServiceAdapter:
         state = hass.states.get(entity_ids[0])
         if state is None:
             return {}
-        mode = _HA_TO_MODE.get(state.state)
+        mode = _mode_values(service).get(state.state)
         return {} if mode is None else {"mode": mode}
 
     async def apply_command(
@@ -71,7 +70,8 @@ class ModeServiceAdapter:
         self.validate_service(service)
         self.validate_entities(entity_ids)
         mode = _wire_int(payload.get("mode"))
-        hvac_mode = _MODE_TO_HA.get(mode) if mode is not None else None
+        mode_to_ha = {value: name for name, value in _mode_values(service).items()}
+        hvac_mode = mode_to_ha.get(mode) if mode is not None else None
         if hvac_mode is None:
             return
         state = hass.states.get(entity_ids[0])
@@ -87,6 +87,22 @@ class ModeServiceAdapter:
 
 
 ADAPTER = ModeServiceAdapter()
+
+
+def _mode_values(service: ServiceRef) -> dict[str, int]:
+    raw = service.contract_value("values", _DEFAULT_HA_TO_MODE)
+    if not isinstance(raw, dict) or not raw:
+        raise ValueError("mode contract values must be a non-empty mapping")
+    values: dict[str, int] = {}
+    for name, value in raw.items():
+        if not isinstance(name, str) or not name:
+            raise ValueError("mode contract values must use non-empty text keys")
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError("mode contract values must be integers")
+        values[name] = value
+    if len(set(values.values())) != len(values):
+        raise ValueError("mode contract values must be unique")
+    return values
 
 
 def _wire_int(value: object) -> int | None:

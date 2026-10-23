@@ -158,8 +158,9 @@ class ActionServiceAdapter:
             return {}
         domain = entity_ids[0].partition(".")[0]
         commands, explicit, idle = _contract(service)
+        field = _field_name(service)
         if explicit is not None and state.state in explicit:
-            return {"action": explicit[state.state]}
+            return {field: explicit[state.state]}
         commands = _resolve(service, domain, commands, entity_ids[0])
         if commands is None:
             return {}
@@ -167,7 +168,7 @@ class ActionServiceAdapter:
         if candidates:
             value = _first_value(commands, candidates)
             if value is not None:
-                return {"action": value}
+                return {field: value}
             _warn_once(
                 ("action", entity_ids[0], state.state),
                 "action: no value for state %r" % (state.state,),
@@ -175,7 +176,7 @@ class ActionServiceAdapter:
             return {}
         if idle is None:
             idle = _first_value(commands, _IDLE_ROLES.get(domain, ()))
-        return {"action": idle} if idle is not None else {}
+        return {field: idle} if idle is not None else {}
 
     async def apply_command(
         self,
@@ -186,7 +187,9 @@ class ActionServiceAdapter:
     ) -> None:
         self.validate_service(service)
         self.validate_entities(entity_ids)
-        raw = payload.get("action")
+        raw = payload.get(_field_name(service))
+        if raw is None and _field_name(service) != "action":
+            raw = payload.get("action")
         if isinstance(raw, bool) or not isinstance(raw, int):
             return
         domain = entity_ids[0].partition(".")[0]
@@ -204,6 +207,12 @@ class ActionServiceAdapter:
 
 
 ADAPTER = ActionServiceAdapter()
+
+
+def _field_name(service: ServiceRef) -> str:
+    """Use the Profile characteristic name for sid aliases such as leftAction."""
+
+    return "action" if service.service_id == "action" else service.service_id
 
 
 def _contract(

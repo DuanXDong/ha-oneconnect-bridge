@@ -227,15 +227,12 @@ def _validate_service_bindings(
 ) -> None:
     selected = {service.service_id for service in services}
     bound = {binding.service_id for binding in bindings}
-    if selected != bound:
-        missing = sorted(selected - bound)
-        unknown = sorted(bound - selected)
-        details = []
-        if missing:
-            details.append(f"unbound services: {', '.join(missing)}")
-        if unknown:
-            details.append(f"bindings for unselected services: {', '.join(unknown)}")
-        raise MappingConfigError(f"child {child_key} has " + "; ".join(details))
+    unknown = sorted(bound - selected)
+    if unknown:
+        raise MappingConfigError(
+            f"child {child_key} has bindings for unselected services: "
+            f"{', '.join(unknown)}"
+        )
     for binding in bindings:
         try:
             get_service_adapter(binding.service_id).validate_entities(binding.entity_ids)
